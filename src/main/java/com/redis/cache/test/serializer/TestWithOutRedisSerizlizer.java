@@ -2,23 +2,39 @@ package com.redis.cache.test.serializer;
 
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.support.spring.FastJsonRedisSerializer;
+import com.esotericsoftware.kryo.Kryo;
+import com.esotericsoftware.kryo.io.Input;
+import com.esotericsoftware.kryo.io.Output;
 import com.redis.cache.test.serializer.mydto.OperationWaybill;
 import com.redis.cache.test.serializer.serializer.*;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.sync.RedisStringCommands;
+import net.bytebuddy.agent.ByteBuddyAgent;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.serializer.JdkSerializationRedisSerializer;
 import org.springframework.data.redis.serializer.RedisSerializer;
+import org.springframework.data.redis.serializer.SerializationException;
 import org.springframework.util.StopWatch;
 import org.xerial.snappy.Snappy;
 import redis.clients.jedis.Jedis;
+import sun.instrument.InstrumentationImpl;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
 import java.io.StringReader;
+import java.lang.instrument.Instrumentation;
 import java.math.BigDecimal;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /**
  * Description: 测试序列化 .<br>
@@ -27,6 +43,11 @@ import java.util.Properties;
  * Created By 2019/8/20 下午4:16
  */
 public class TestWithOutRedisSerizlizer {
+    static {
+
+      ByteBuddyAgent.install();
+    }
+    static Instrumentation instrumentation = ByteBuddyAgent.getInstrumentation();
     public static Jedis jedis;
     public static RedisTemplate redisTemplate;
     public static RedisClient client;
@@ -147,7 +168,7 @@ public class TestWithOutRedisSerizlizer {
             "\t}],\n" +
             "\t\"clientCode\": \"colp-qy\"\n" +
             "}";
-    public static final int SUM = 1000000;
+    public static final int SUM = 100000;
     public static RedisSerializer jdkSerializationRedisSerializer = new JdkSerializationRedisSerializer();
     public static RedisSerializer fastJsonRedisSerializer = new FastJsonRedisSerializer(OperationWaybill.class);
     public static RedisSerializer fstSerializer = new FstSerializer(OperationWaybill.class);
@@ -165,22 +186,38 @@ public class TestWithOutRedisSerizlizer {
     //    System.out.println("连接服务成功");
     //}
     public static void main(String[] args) throws IOException, InterruptedException {
-        init();
+        //init();
         OperationWaybill operationWaybill = JSON.parseObject(str, OperationWaybill.class);
         //OperationWaybill operationWaybill = new OperationWaybill();
 
         System.out.println("JDK,FST,Kryo对比测试：");
 
-        Thread.sleep(2000);
-        sourceJSON(operationWaybill);
+        //Thread.sleep(2000);
+        //sourceJSON(operationWaybill);
         //testJdk(operationWaybill);
         //testFastJson(operationWaybill);
 
-        testFst(operationWaybill);
+        //testFst(operationWaybill);
         //testFstJSONStr(operationWaybill);
         //testFstJSonSerial(operationWaybill);
         //testProtostuff(operationWaybill);
-        testSnappy(operationWaybill);
+        //testSnappy(operationWaybill);
+        //List<OperationWaybill> operationWaybills = new LinkedList<>();
+        //try {
+        //    for (int i = 0; i < SUM; i++) {
+        //        operationWaybills.add(operationWaybill.clone());
+        //    }
+        //Thread.sleep(100_000);
+        //} catch (CloneNotSupportedException e) {
+        //    throw new RuntimeException(e);
+        //}
+        getSizeOfCompressedObjectByJDK(operationWaybill);
+        getSizeOfCompressedObjectBySnappy(operationWaybill);
+        getSizeOfCompressedObjectByKyro(operationWaybill);
+        getSizeOfCompressedObjectBySnappyAndKyro(operationWaybill);
+        getSizeOfCompressedObjectByInstrumentation(operationWaybill);
+        testSnappyUncompressWithKyro(operationWaybill);
+        testSnappyUncompress(operationWaybill);
         //
         //
         //testKryo(operationWaybill);
@@ -200,6 +237,11 @@ public class TestWithOutRedisSerizlizer {
 //        testKryo(operationWaybill);
 
     }
+
+    //public static void premain(String agentArgs, Instrumentation inst) {
+    //    OperationWaybill operationWaybill = JSON.parseObject(str, OperationWaybill.class);
+    //    getSizeOfCompressedObjectByInstrumentation(operationWaybill,inst);
+    //}
 
 
 
@@ -248,7 +290,7 @@ public class TestWithOutRedisSerizlizer {
             */
     }
     public static void testFstJSonSerial(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -260,7 +302,7 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("FST原生JSON序列化方案(fstJsonSerializer)[序列化 & 保存%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
 
 
         stopWatch.start();
@@ -271,12 +313,12 @@ public class TestWithOutRedisSerizlizer {
 
         stopWatch.stop();
         System.out.println(String.format("FST原生JSON序列化方案(fstJsonSerializer)[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void sourceJSON(OperationWaybill operationWaybill) {
 
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -285,7 +327,7 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("原生JSON方案[序列化+反序列化 %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
 
@@ -297,21 +339,26 @@ public class TestWithOutRedisSerizlizer {
     }
 
     public static void init() {
-        client = RedisClient.create("redis://123456@127.0.0.1:16379");
-        StatefulRedisConnection<String, String> connection = client.connect();
-        sync = connection.sync();
+        try {
+            client = RedisClient.create("redis://123456@127.0.0.1:16379");
+            StatefulRedisConnection<String, String> connection = client.connect();
+            sync = connection.sync();
 
 
-        //连接redis服务器(在这里是连接本地的)
-        jedis = new Jedis("127.0.0.1", 16379);
-        //权限认证
-        jedis.auth("123456");
+            //连接redis服务器(在这里是连接本地的)
+            jedis = new Jedis("127.0.0.1", 16379);
+            //权限认证
+            jedis.auth("123456");
 
-        System.out.println("连接服务成功");
+            System.out.println("连接服务成功");
+        } catch (Exception e) {
+            System.err.println("连接服务失败");
+        }
+
     }
 
     public static void testJdk(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -323,11 +370,11 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("原生JDK序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void testFastJson(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -339,11 +386,11 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("FastJson序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void testFst(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -352,11 +399,11 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("FST序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void testLZ4(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -372,7 +419,7 @@ public class TestWithOutRedisSerizlizer {
 
 
         System.out.println(String.format("LZ4序列化方案[toJSONString & 序列化 & 保存 %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
         //======序列化=======
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -382,11 +429,11 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("LZ4序列化方案[序列化 & 反序列化 & parseObject %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void testProtostuff(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -396,10 +443,10 @@ public class TestWithOutRedisSerizlizer {
 
         stopWatch.stop();
         System.out.println(String.format("protostuff序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
     public static void testSnappyWithJSONParse(OperationWaybill operationWaybill) throws IOException {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -410,7 +457,7 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("Snappy压缩方案[序列化 & 反序列化 & toJsonString & parseObject %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
 
 
         stopWatch.start();
@@ -422,10 +469,10 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("Snappy压缩方案[序列化 & 反序列化 & toJsonString & parseObject %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
     public static void testSnappy(OperationWaybill operationWaybill) throws IOException {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -436,12 +483,209 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("Snappy压缩方案[序列化 & 反序列化 + parseObject%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
+    }
+    public static void testSnappyUncompress(OperationWaybill operationWaybill) throws IOException {
+        double size = 0;
+        byte[] bytes = compressValue(operationWaybill);
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        for (int i = 0; i < SUM; i++) {
+            //size+=bytes.length;
+            OperationWaybill operationWaybill1 = (OperationWaybill) deserialize(Snappy.uncompress(bytes));
+
+        }
+        stopWatch.stop();
+        System.out.println(String.format("Snappy压缩方案[序列化 & 反序列化 + parseObject%s次]\n耗时：%s ms, 总大小 %s mb",
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
+    }
+
+    private static BigDecimal byteToMb(Double size) {
+        return BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024));
+    }
+
+    private static byte[] compressValue(Object value) {
+        byte[] valueCompressBytes;
+        try {
+            valueCompressBytes = Snappy.compress(getBytesFromObject((Serializable) value));
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        return valueCompressBytes;
+    }
+
+    //calculate the size of the object after compressed by jdk
+    private static double getSizeOfCompressedObjectByJDK(Object value) {
+        double size = 0;
+        try {
+            size = getBytesFromObject((Serializable) value).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("JDK"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    //getSizeOfCompressedObjectBySnappy
+    private static double getSizeOfCompressedObjectBySnappy(Object value) {
+        double size = 0l;
+        try {
+            size = Snappy.compress(getBytesFromObject((Serializable) value)).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("Snappy"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    private static double getSizeOfCompressedObjectByKyro(Object value) {
+        double size = 0l;
+        try {
+            size = compressValueByKyro(value).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("Kyro"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    //getSizeOfCompressedObjectBySnappyAndKyro
+    private static double getSizeOfCompressedObjectBySnappyAndKyro(Object value) {
+        double size = 0;
+
+        try {
+            size = Snappy.compress(compressValueByKyro(value)).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("Snappy+Kyro "+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    //getSizeOfCompressedObjectByInstrumentation
+    private static double getSizeOfCompressedObjectByInstrumentation(Object value) {
+
+        double size = 0;
+        try {
+            size = instrumentation.getObjectSize(value)*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("原始"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+
+    public static byte[] getBytesFromObject(Serializable obj) throws Exception {
+        if (obj == null) {
+            return null;
+        }
+        try (
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                GZIPOutputStream gzipOut = new GZIPOutputStream(baos);
+                ObjectOutputStream objectOut = new ObjectOutputStream(gzipOut);
+                ) {
+            objectOut.writeObject(obj);
+            objectOut.flush();
+            objectOut.close();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            throw new Exception("getBytesFromObject error", e);
+        }
+    }
+
+    public static Object deserialize(byte[] bytes)  {
+        try (
+                ByteArrayInputStream bais = new ByteArrayInputStream(bytes);
+                GZIPInputStream gzipIn = new GZIPInputStream(bais);
+                ObjectInputStream objectIn = new ObjectInputStream(gzipIn);
+                ) {
+            return objectIn.readObject();
+        } catch (Exception e) {
+            System.err.println("deserialize fail"+ e.getMessage());
+            //throw new Exception("getBytesFromObject error", e);
+            return null;
+        }
     }
 
 
+    public static void testSnappyUncompressWithKyro(OperationWaybill operationWaybill) throws IOException {
+        double size = 0;
+        byte[] bytes = compressValueByKyro(operationWaybill);
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        for (int i = 0; i < SUM; i++) {
+            //size+=bytes.length;
+            OperationWaybill operationWaybill1 = (OperationWaybill) deserializeByKyro(Snappy.uncompress(bytes));
+        }
+        stopWatch.stop();
+        System.out.println(String.format("Snappy+Kyro压缩方案[序列化 & 反序列化 + parseObject%s次]\n耗时：%s ms, 总大小 %s mb",
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
+    }
+
+    private static Kryo kryo;
+    static {
+        kryo = new Kryo();
+        kryo.setRegistrationRequired(false);
+    }
+
+
+    private static byte[] compressValueByKyro(Object value) {
+        byte[] valueCompressBytes;
+        try {
+            valueCompressBytes = Snappy.compress(serializeByKryo(value));
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        return valueCompressBytes;
+    }
+    public static byte[] serializeByKryo(Object t) throws SerializationException {
+        if (t == null) {
+            return new byte[0];
+        }
+
+        kryo.setReferences(false);
+        kryo.register(OperationWaybill.class);
+
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             Output output = new Output(baos)) {
+            kryo.writeClassAndObject(output, t);
+            output.flush();
+            return baos.toByteArray();
+        } catch (Exception e) {
+            //log.error(e.getMessage(), e);
+            System.out.println(e.getMessage());
+        }
+
+        return new byte[0];
+    }
+    public static Object deserializeByKyro(byte[] bytes) throws SerializationException {
+        if (bytes == null || bytes.length <= 0) {
+            return null;
+        }
+
+        kryo.setReferences(false);
+        kryo.register(OperationWaybill.class);
+        try (Input input = new Input(bytes)) {
+            return kryo.readClassAndObject(input);
+        } catch (Exception e) {
+            System.out.println(e.getMessage());
+        }
+
+        return null;
+    }
+
     public static void testFstJSONStr(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -451,7 +695,7 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("FST String序列化方案[toJSONString & 序列化 & 保存  %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
 
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -460,11 +704,11 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("FST String序列化方案[序列化 & 反序列化 &  parseObject %s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
     public static void testKryo(OperationWaybill operationWaybill) {
-        long size = 0;
+        double size = 0;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
@@ -473,6 +717,6 @@ public class TestWithOutRedisSerizlizer {
         }
         stopWatch.stop();
         System.out.println(String.format("Kryo序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
-                SUM, stopWatch.getTotalTimeMillis(), BigDecimal.valueOf(size).divide(BigDecimal.valueOf(1024)).divide(BigDecimal.valueOf(1024))));
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 }

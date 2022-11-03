@@ -6,11 +6,11 @@ import java.util.List;
 
 /**
  * @description 操作类运单主表
- * 
+ *
  * HISTORY
  * ****************************************************************************
- *  ID   DATE            PERSON       REASON    
- *  1    2017年09月16日           01369587       Create   
+ *  ID   DATE            PERSON       REASON
+ *  1    2017年09月16日           01369587       Create
  * ****************************************************************************
  */
 public class OperationWaybill extends StringIdBean {
@@ -210,24 +210,24 @@ public class OperationWaybill extends StringIdBean {
      * 操作类运单包裹对象
      */
     private List<OperationWaybillPackage> operationWaybillPackageList;
-    
+
     /**
      * 税金信息  -- create by 01369587 2017-11-24
      */
     private List<OperationTaxbillInfo> operationTaxbillInfoList;
-    
+
     private OperationTaxbillInfo operationTaxbillInfo;
 
     /**
      * 操作类运单附加扩展
      */
     private List<OperationWaybillAdditionExt> optWaybillAdditionExtList;
-    
+
     /**
      * 操作类运单信息集合：特殊操作
      */
     private List<OperationWaybillSpecialHandler> optWaybillSpecialHandlerList;
-    
+
     /**
      * 派件员工号
      */
@@ -244,7 +244,7 @@ public class OperationWaybill extends StringIdBean {
      * 客户编码; 下单的客户编码
      */
     private String clientCode;
-    
+
     /**
      * 当前来源：对应WaybillSource的code
      */
@@ -264,7 +264,7 @@ public class OperationWaybill extends StringIdBean {
      * 输单员工号
      */
     private String inputerEmpCode;
-    
+
     public OperationWaybill() {
         super();
     }
@@ -374,7 +374,7 @@ public class OperationWaybill extends StringIdBean {
         }
         return operationTaxbillInfo;
     }
-    
+
     public void setOperationTaxbillInfo(OperationTaxbillInfo operationTaxbillInfo) {
 
     }
@@ -635,7 +635,7 @@ public class OperationWaybill extends StringIdBean {
         this.createTm = createTm;
     }
 
-/*    
+/*
     public String getExtJson() {
         return extJson;
     }
@@ -648,7 +648,7 @@ public class OperationWaybill extends StringIdBean {
     }
     */
 
-	
+
     public String getActionJson() {
         return actionJson;
     }
@@ -705,12 +705,12 @@ public class OperationWaybill extends StringIdBean {
         return true;
     }
 
-    
+
     public String getInputerEmpCode() {
         return inputerEmpCode;
     }
 
-    
+
     public void setInputerEmpCode(String inputerEmpCode) {
         this.inputerEmpCode = inputerEmpCode;
     }
@@ -720,7 +720,7 @@ public class OperationWaybill extends StringIdBean {
     public void setOperationTaxbillInfoList(List<OperationTaxbillInfo> operationTaxbillInfoList) {
         this.operationTaxbillInfoList = operationTaxbillInfoList;
     }
-    
+
     public String getDeliverEmpCode() {
         return deliverEmpCode;
     }
@@ -760,7 +760,7 @@ public class OperationWaybill extends StringIdBean {
     public void setDeliveredType(String deliveredType) {
         this.deliveredType = deliveredType;
     }
-	
+
     public String getCurrentSource() {
         return currentSource;
     }
@@ -784,5 +784,8 @@ public class OperationWaybill extends StringIdBean {
                 + currentSource + "]";
     }
 
-	
+    @Override
+    public OperationWaybill clone() throws CloneNotSupportedException {
+        return (OperationWaybill) super.clone();
+    }
 }
