@@ -215,9 +215,17 @@ public class TestWithOutRedisSerizlizer {
         getSizeOfCompressedObjectBySnappy(operationWaybill);
         getSizeOfCompressedObjectByKyro(operationWaybill);
         getSizeOfCompressedObjectBySnappyAndKyro(operationWaybill);
+        getSizeOfJSONBySnappy(operationWaybill);
+        getSizeOfJSONBySnappyAndKyro(operationWaybill);
         getSizeOfCompressedObjectByInstrumentation(operationWaybill);
-        testSnappyUncompressWithKyro(operationWaybill);
+        System.out.println();
+        System.out.println();
+        System.out.println();
         testSnappyUncompress(operationWaybill);
+        testUncompressWithKyro(operationWaybill);
+        testSnappyUncompressWithKyro(operationWaybill);
+        testProtostuff(operationWaybill);
+        testProtostuffAndSnappy(operationWaybill);
         //
         //
         //testKryo(operationWaybill);
@@ -438,11 +446,27 @@ public class TestWithOutRedisSerizlizer {
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
             byte[] jdkserialize = protostuffSerializer.serialize(operationWaybill);
+            size += jdkserialize.length;
             OperationWaybill operationWaybill1 = (OperationWaybill) protostuffSerializer.deserialize(jdkserialize);
         }
 
         stopWatch.stop();
         System.out.println(String.format("protostuff序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
+    }
+
+    public static void testProtostuffAndSnappy(OperationWaybill operationWaybill) throws IOException {
+        double size = 0;
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        for (int i = 0; i < SUM; i++) {
+            byte[] jdkserialize = Snappy.compress(protostuffSerializer.serialize(operationWaybill));
+            size += jdkserialize.length;
+            OperationWaybill operationWaybill1 = (OperationWaybill) protostuffSerializer.deserialize(Snappy.uncompress(jdkserialize));
+        }
+
+        stopWatch.stop();
+        System.out.println(String.format("Snappy+protostuff序列化方案[序列化 & 反序列化%s次]\n耗时：%s ms, 总大小 %s mb",
                 SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
     public static void testSnappyWithJSONParse(OperationWaybill operationWaybill) throws IOException {
@@ -491,7 +515,7 @@ public class TestWithOutRedisSerizlizer {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
-            //size+=bytes.length;
+            size+=bytes.length;
             OperationWaybill operationWaybill1 = (OperationWaybill) deserialize(Snappy.uncompress(bytes));
 
         }
@@ -540,6 +564,30 @@ public class TestWithOutRedisSerizlizer {
             throw new RuntimeException("compressValue error", e);
         }
         System.out.println("Snappy"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    private static double getSizeOfJSONBySnappy(Object value) {
+        double size = 0l;
+        try {
+            size = Snappy.compress(JSON.toJSONString(value).getBytes()).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("Snappy+JSON"+SUM+"个对象总大小"+byteToMb(size));
+        return size;
+    }
+    private static double getSizeOfJSONBySnappyAndKyro(Object value) {
+        double size = 0l;
+        try {
+            size = Snappy.compress(serializeByKryo(JSON.toJSONString(value).getBytes())).length*SUM;
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        System.out.println("Snappy+JSON+Kyro"+SUM+"个对象总大小"+byteToMb(size));
         return size;
     }
     private static double getSizeOfCompressedObjectByKyro(Object value) {
@@ -622,11 +670,24 @@ public class TestWithOutRedisSerizlizer {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         for (int i = 0; i < SUM; i++) {
-            //size+=bytes.length;
+            size+=bytes.length;
             OperationWaybill operationWaybill1 = (OperationWaybill) deserializeByKyro(Snappy.uncompress(bytes));
         }
         stopWatch.stop();
         System.out.println(String.format("Snappy+Kyro压缩方案[序列化 & 反序列化 + parseObject%s次]\n耗时：%s ms, 总大小 %s mb",
+                SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
+    }
+    public static void testUncompressWithKyro(OperationWaybill operationWaybill) throws IOException {
+        double size = 0;
+        byte[] bytes = compressValueByKyroNoSnappy(operationWaybill);
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        for (int i = 0; i < SUM; i++) {
+            size+=bytes.length;
+            OperationWaybill operationWaybill1 = (OperationWaybill) deserializeByKyro(bytes);
+        }
+        stopWatch.stop();
+        System.out.println(String.format("Kyro压缩方案[序列化 & 反序列化 + parseObject%s次]\n耗时：%s ms, 总大小 %s mb",
                 SUM, stopWatch.getTotalTimeMillis(), byteToMb(size)));
     }
 
@@ -641,6 +702,17 @@ public class TestWithOutRedisSerizlizer {
         byte[] valueCompressBytes;
         try {
             valueCompressBytes = Snappy.compress(serializeByKryo(value));
+        } catch (Exception e) {
+            System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
+            //任意一个对象序列化失败，都要阻塞服务启动
+            throw new RuntimeException("compressValue error", e);
+        }
+        return valueCompressBytes;
+    }
+    private static byte[] compressValueByKyroNoSnappy(Object value) {
+        byte[] valueCompressBytes;
+        try {
+            valueCompressBytes = serializeByKryo(value);
         } catch (Exception e) {
             System.out.println("!!! Fatal Error!!!  compressValue error"+e.getMessage());
             //任意一个对象序列化失败，都要阻塞服务启动
